@@ -3,39 +3,94 @@ import pandas as pd
 from pathlib import Path
 from cleaner import file_cleaner
 
+# Asks how many files the user will upload, validates it's an integer
+def ask_file_amount():
 
-# Generates 3 CSV reports from an already-merged dataframe.
-#     - reportSellersDetailed: sales by seller and category (sum, count, max)
-#     - reportMonthly: sales grouped by category and month
-#     - reportSellers: pivot table seller x category, with totals
-def generate_reports(df, name_column, group_column, value_column, quantity_column, total_column, total_exist, date_column=None):
+    while True:
+        try:
+            print("Insert 0 to exit.")
+            file_amount= int(input("Insert number of files "))
+        except ValueError:
+            print("It can't contain letters. \nTry again\n")
+            continue
 
-    # If the file doesn't have a Total column, calculate it: price * quantity
-    if total_exist == False:
-        df[total_column] = df[value_column] * df[quantity_column]
+        if file_amount == 0:
+            file_amount = None
+            break
+        elif file_amount >0:
+            file_confirmation = input(f"Are you sure you want {file_amount} files? Press S/N ").upper()
+            if file_confirmation.startswith("S"):
+                break
+        else:
+            print("Insert a valid amount! \nTry again\n")
 
-    # If a date column exists, derive Month and Year for grouping reports
-    if date_column:
-        df[date_column] = pd.to_datetime(df[date_column])
-        df["Month"] = df[date_column].dt.month
-        df["Year"] = df[date_column].dt.year
+    return file_amount
 
-    # Report 1: sales detail by (seller, category) -> sum, sale count, max sale
-    reportSellersDetailed = df.groupby([name_column, group_column])[value_column].agg(["sum", "count", "max"])
-    reportSellersDetailed = reportSellersDetailed.sort_values(by=[name_column, "sum"], ascending=False)
-    reportSellersDetailed.to_csv("Detailed_Sellers_Report.csv")
+def load_and_clean_files(file_amount):
 
-    # Report 2: sales by (category, month) -> monthly trend
-    reportMonthly = df.groupby([group_column, "Month"])[value_column].agg(["sum", "count", "max"])
-    reportMonthly = reportMonthly.sort_values(by=["Month", "sum"], ascending=False)
-    reportMonthly.to_csv("Monthly_Report.csv")
+    file_list = []
+    print(
+        "\nImportant: Upload files in the exact order of correlation. Incorrect sequencing won't be able to process your files correctly.\n",
+        "Example sequence: sales.csv → sellers.xlsx → products.csv")
+    # For each file: checks it exists on disk, cleans it via file_cleaner(), stores the clean path
+    valid_extensions = (".csv", ".xlsx", ".xls")
+    for i in range(0, file_amount):
+        while True:
+            file_name = input(f"Insert {i+1} file's name ")
+            if file_name.lower().endswith(valid_extensions):
+                path_check = Path(file_name)
+                if path_check.is_file():
+                    clean_file_name = file_cleaner(file_name, f"clean_{file_name}")
+                    file_list.append(clean_file_name)
+                    break
+                else:
+                    print("File doesn't exist. \nTry again.\n")
+            else:
+                print(f"Unsupported file format: {file_name}")
 
-    # Report 3: pivot table seller x category, with "All" row/column totals
-    reportSellers = pd.pivot_table(df, index=name_column, columns=group_column, values=value_column, aggfunc="sum", margins=True, fill_value=0)
-    reportSellers.to_csv("Sellers_Report.csv", index=True)
+    return file_list
 
+def load_dataframes(file_list):
+
+    dataFrame_list = []
+    # Loads each already-cleaned file into a DataFrame based on its extension
+    for file_path in file_list:
+        if file_path.endswith(".csv"):
+            dataFrame_item = pd.read_csv(file_path)
+            dataFrame_list.append(dataFrame_item)
+        else:
+            dataFrame_item = pd.read_excel(file_path)
+            dataFrame_list.append(dataFrame_item)
+
+    return dataFrame_list
+
+def detect_mutual_columns(df_list):
+
+    mutual_columns = []
+    invalid_pair = None
     
-    return reportMonthly, reportSellers, reportSellersDetailed
+    
+    for i in range(0,  len(df_list)-1):
+        shared_cols = df_list[i].columns.intersection(df_list[i+1].columns)
+        if not shared_cols.empty:
+            mutual_columns.append(shared_cols)
+        else:
+            invalid_pair = i, i+1
+            return None, invalid_pair
+            
+    return mutual_columns, invalid_pair
+
+def build_merge_keys(mutual_columns, dataFrame_list):
+
+    merge_keys = []
+    for i, mutual_cols in enumerate(mutual_columns):
+        chosen_column = choose_column_merge(mutual_cols, dataFrame_list[i].columns, dataFrame_list[i+1].columns)
+        if chosen_column is None:
+            return None
+        else:
+            merge_keys.append(chosen_column)
+
+    return merge_keys
 
 # For each file pair, decide which column to use as the merge key:
 # - 1 shared column -> confirm it, or ask for a manual one
@@ -64,8 +119,6 @@ def choose_column_merge(mutual_cols, cols_current, cols_next):
             else:
                 print("Invalid character, use S or N.")
             
-
-
     elif len(mutual_cols) >= 2:
         print("There are more than 1 mutual columns.")
         for j, col_name in enumerate(mutual_cols):
@@ -95,138 +148,133 @@ def choose_column_merge(mutual_cols, cols_current, cols_next):
 
     return chosen_column
 
-# Asks how many files the user will upload, validates it's an integer
-while True:
-    try:
-        print("Insert 0 to exit.")
-        file_amount= int(input("Insert number of files "))
-    except ValueError:
-        print("It can't contain letters. \nTry again\n")
-        continue
+def chained_merge(dataframe_list, merge_keys):
+    df_final = dataframe_list[0]
+    for i in range(len(merge_keys)):
+        df_final = df_final.merge(dataframe_list[i+1], on=merge_keys[i], how="left")
+    return df_final
 
-    if file_amount == 0:
-        print("Exiting program.")
-        break
-    elif file_amount <0:
-        print("Insert a valid amount! \nTry again\n")
-    else:
-        file_confirmation = input(f"Are you sure you want {file_amount} files? Press S/N ").upper()
-        if file_confirmation.startswith("S"):
-            break
+# Generates 3 CSV reports from an already-merged dataframe.
+#     - reportSellersDetailed: sales by seller and category (sum, count, max)
+#     - reportMonthly: sales grouped by category and month
+#     - reportSellers: pivot table seller x category, with totals
+def generate_reports(df, name_column, group_column, value_column, quantity_column, totals_column, totals_exist, date_column=None):
 
-file_list = []
-print(
-    "\nImportant: Upload files in the exact order of correlation. Incorrect sequencing won't be able to process your files correctly.\n",
-    "Example sequence: sales.csv → sellers.xlsx → products.csv")
-# For each file: checks it exists on disk, cleans it via file_cleaner(), stores the clean path
-for i in range(0, file_amount):
+    # If the file doesn't have a Total column, calculate it: price * quantity
+    if totals_exist == False:
+        df[totals_column] = df[value_column] *  df[quantity_column]
+
+    # If a date column exists, derive Month and Year for grouping reports
+    if date_column:
+        df[date_column] = pd.to_datetime(df[date_column])
+        df["Month"] = df[date_column].dt.month
+        df["Year"] = df[date_column].dt.year
+
+    # Report 1: sales detail by (seller, category) -> sum, sale count, max sale
+    reportSellersDetailed = df.groupby([name_column, group_column])[value_column].agg(["sum", "count", "max"])
+    reportSellersDetailed = reportSellersDetailed.sort_values(by=[name_column, "sum"], ascending=False)
+    reportSellersDetailed.to_csv("Detailed_Sellers_Report.csv")
+
+    # Report 2: sales by (category, month) -> monthly trend
+    reportMonthly = df.groupby([group_column, "Month"])[value_column].agg(["sum", "count", "max"])
+    reportMonthly = reportMonthly.sort_values(by=["Month", "sum"], ascending=False)
+    reportMonthly.to_csv("Monthly_Report.csv")
+
+    # Report 3: pivot table seller x category, with "All" row/column totals
+    reportSellers = pd.pivot_table(df, index=name_column, columns=group_column, values=value_column, aggfunc="sum", margins=True, fill_value=0)
+    reportSellers.to_csv("Sellers_Report.csv", index=True)
+
+    return reportMonthly, reportSellers, reportSellersDetailed
+
+def ask_valid_column(df, text):
     while True:
-        file_name = input(f"Insert {i+1} file's name ")
-        path_check = Path(file_name)
-        if path_check.is_file():
-            clean_file_name = file_cleaner(file_name, f"clean_{file_name}")
-            file_list.append(clean_file_name)
+        column_name = input(text)
+        if column_name in df.columns:
+            break
+        elif column_name == "":
+            print("It can't be blank. \nTry again.\n")
+        else:
+            print(column_name + " doesn't exist.")
+
+    return column_name
+
+def ask_report_columns(df):
+    group_column = ask_valid_column(df, "which is the categories column ")
+    name_column = ask_valid_column(df, "which's the sellers column ")
+    value_column = ask_valid_column(df, "which is the price column ")
+    quantity_column = ask_valid_column(df, "which is the quantity column ")
+    totals_column, totals_exist = ask_totals_column(df)
+    date_column = ask_date_column(df)
+
+    return {
+        "group_column" : group_column, 
+        "name_column" : name_column,
+        "value_column" : value_column, 
+        "quantity_column" : quantity_column,
+        "totals_column" : totals_column,
+        "totals_exist" : totals_exist,
+        "date_column" : date_column
+    }
+
+def ask_totals_column(df):
+    while True:
+        print("If there is not totals Column, press Enter to create one.")
+        total_column = input("Insert totals column ")
+        if total_column in df.columns:
+            totals_exist = True
+            break
+        elif total_column == "":
+            total_column = "Total"
+            totals_exist = False
             break
         else:
-            print("File doesn't exist. \nTry again.\n")
+            print(total_column + " is not an existing column. \ntry again.\n")
 
-dataFrame_list = []
-# Loads each already-cleaned file into a DataFrame based on its extension
-for i in range(0, file_amount):
-    if file_list[i].endswith(".csv"):
-        dataFrame_item = pd.read_csv(file_list[i])
-        dataFrame_list.append(dataFrame_item)
-    else:
-        dataFrame_item = pd.read_excel(file_list[i])
-        dataFrame_list.append(dataFrame_item)
-    
+    return total_column, totals_exist
 
-invalid_pair = None
-valid_merge = True
-mutual_columns = []
-# Detects shared columns between each pair of consecutive files
-# If a pair has zero shared columns, they can't be merged -> invalid_pair
-for i in range(0, file_amount-1):
-    shared_cols = dataFrame_list[i].columns.intersection(dataFrame_list[i+1].columns)
-    if not shared_cols.empty:
-        mutual_columns.append(shared_cols)
-    else:
-        invalid_pair = i, i+1
-        valid_merge = False
-        break
+def ask_date_column(df):
+    while True:
+        print("Date column is optional! Press Enter to skip if you don't have one.")
+        date_column = input("Insert date column ")
+        if date_column in df.columns:
+            break
+        elif date_column == "":
+            date_column = None
+            break
+        else:
+            print(date_column + " is not an existing column. \ntry again.\n")
+
+    return date_column
 
 
 
-merge_keys = []
+def main():
+    while True:
+        file_amount = ask_file_amount()
+        if file_amount is not None:
+            file_list = load_and_clean_files(file_amount) 
+            dataFrame_list = load_dataframes(file_list)
+            mutual_columns, invalid_pair = detect_mutual_columns(dataFrame_list)
+            if mutual_columns is None:
+                idx1, idx2 = invalid_pair
+                print(f"Files {file_list[idx1]} and {file_list[idx2]} don't share any columns.")
+                break
+                
+            else:
+                merge_keys = build_merge_keys(mutual_columns, dataFrame_list)
+                if merge_keys is None:
+                    print("Merge cancelled by user.")
+                    continue
+                else:
+                    df = chained_merge(dataFrame_list, merge_keys)
+                    report_columns = ask_report_columns(df)
+                    monthly, sellers, detailed = generate_reports(df, **report_columns)
+                    print(monthly, "\n", sellers, "\n", detailed)
 
-for i, mutual_cols in enumerate(mutual_columns):
-    result = choose_column_merge(mutual_cols ,dataFrame_list[i].columns, dataFrame_list[i+1].columns)
-    if result is None:
-        valid_merge = False
-        break
-    else:
-        merge_keys.append(result)
+        else:
+            close_confirmation = input("Do you wana close the program? S/N").upper()
+            if close_confirmation == "S":
+                print("Exiting program.")
+                break
 
-
-# WIP: pending dynamic column selection
-# TODO: temporarily disabled — pending replacement with dynamic inputs
-# while True:
-#     name_column = input("Insert name's column ")
-#     if name_column in df.columns:
-#         break
-#     elif name_column == "":
-#         print("It can't be blank. \nTry again.\n")
-#     else:
-#         print(name_column + " doesn't exist.")
-
-# while True:
-#     group_column = input("Insert name's column ")
-#     if group_column in df.columns:
-#         break
-#     elif group_column == "":
-#         print("It can't be blank. \nTry again.\n")
-#     else:
-#         print(group_column + " doesn't exist.")
-
-# while True:
-#     value_column = input("Insert name's column ")
-#     if value_column in df.columns:
-#         break
-#     elif value_column == "":
-#         print("It can't be blank. \nTry again.\n")
-#     else:
-#         print(value_column + " doesn't exist.")
-
-# while True:
-#     quantity_column = input("Insert name's column ")
-#     if quantity_column in df.columns:
-#         break
-#     elif quantity_column == "":
-#         print("It can't be blank. \nTry again.\n")
-#     else:
-#         print(quantity_column + " doesn't exist.")
-
-# while True:
-#     print("If there's isn't a Total Column, press Enter to create one.")
-#     total_column = input("Insert name's column ")
-#     if total_column in df.columns:
-#         total_exist = True
-#         break
-#     elif total_column == "":
-#         total_column = "Total"
-#         total_exist = False
-#         break
-#     else:
-#         print(total_column + " is not an existing column. \ntry again.\n")
-
-        
-
-# print("Date column is optional! Press Enter to skip.")
-# date_column = input("Insert data's column ")
-# if date_column == "":
-#     date_column = None
-
-# df = path1.merge(path2, on=id_column)
-
-# monthly, sellers, detailed = generate_reports(df, name_column, group_column, value_column, quantity_column, total_column, total_exist, id_column, date_column)
-# print(monthly, "\n", sellers, "\n", detailed)
+if __name__ == "__main__": main()

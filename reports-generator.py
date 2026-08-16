@@ -177,7 +177,7 @@ def generate_reports(df, name_column, group_column, value_column, quantity_colum
 
     # Report 2: sales by (category, month) -> monthly trend
     reportMonthly = df.groupby([group_column, "Month"])[value_column].agg(["sum", "count", "max"])
-    reportMonthly = reportMonthly.sort_values(by=["Month", "sum"], ascending=False)
+    reportMonthly = reportMonthly.sort_values(by=["Month", "sum"])
     reportMonthly.to_csv("Monthly_Report.csv")
 
     # Report 3: pivot table seller x category, with "All" row/column totals
@@ -269,7 +269,7 @@ def main():
                     df = chained_merge(dataFrame_list, merge_keys)
                     report_columns = ask_report_columns(df)
                     monthly, sellers, detailed = generate_reports(df, **report_columns)
-                    print(monthly, "\n", sellers, "\n", detailed)
+                    # print(monthly, "\n", sellers, "\n", detailed)
 
         else:
             close_confirmation = input("Do you wana close the program? S/N").upper()

@@ -1,0 +1,9 @@
+ProductID,ProductName,Category,SellerID
+P001,Auriculares Bluetooth,Electrónica,S001
+P002,Cafetera Eléctrica,Hogar,S002
+P003,Remera Deportiva,Ropa,S003
+P004,Botella Térmica,Deportes,S003
+P005,Notebook 14",Electrónica,S001
+P006,Set de Sartenes,Hogar,S002
+P007,Medias Deportivas,Ropa,S004
+P008,Mochila Trekking,Deportes,S004

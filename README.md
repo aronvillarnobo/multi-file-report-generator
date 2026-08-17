@@ -1,65 +1,69 @@
 # Multi-File Report Generator
-
-Python/Pandas tool that merges and analyzes multiple sales files (CSV/Excel), generating automated seller, monthly, and pivot-table reports.
-
+ 
+A Python CLI tool that cleans, merges, and generates sales reports from multiple CSV/Excel files — built for freelance/small-business use cases where sales data lives scattered across several source files (orders, product catalogs, seller lists, region tables, etc.).
+ 
 ## What it does
-
-- Accepts a variable number of input files (CSV/Excel)
-- Cleans each file automatically (via [csv-excel-cleaner](https://github.com/aronvillarnobo/csv-excel-cleaner))
-- Detects shared columns between consecutive files and merges them in sequence, letting the user confirm or pick the merge key when there's ambiguity
-- Asks the user to map their own column names (seller, category, price, quantity) — no fixed schema required
-- Optionally calculates a Total column (price × quantity) if the source file doesn't have one
-- Optionally derives Month/Year breakdowns if a date column is provided
-- Generates 3 reports:
-  - **Detailed_Sellers_Report.csv** — sales by seller and category (sum, count, max)
-  - **Monthly_Report.csv** — sales trend by category and month
-  - **Sellers_Report.csv** — pivot table (seller × category) with totals
-
+ 
+1. **Cleans** each uploaded file (strips whitespace, drops empty/duplicate rows) using the companion [`csv-excel-cleaner`](https://github.com/aronvillarnobo/csv-excel-cleaner) module.
+2. **Detects shared columns** between consecutive files and lets you choose the merge key for each pair — with a manual fallback if no column matches automatically.
+3. **Merges** all files into a single dataset via chained left joins, preserving every row from your primary sales file.
+4. **Generates three reports** from the merged data:
+   - `Detailed_Sellers_Report` — sales by seller and category (sum, count, max)
+   - `Monthly_Report` — sales by category and month
+   - `Sellers_Report` — pivot table of seller × category, with row/column totals
+5. **Exports** each report as CSV or Excel, based on your choice.
 ## Requirements
-
-- Python 3.x
+ 
+- Python 3.10+
 - pandas
-
+- openpyxl (for `.xlsx` export)
+```bash
+pip install pandas openpyxl
+```
+ 
 ## Usage
-
+ 
 ```bash
 python reports-generator.py
 ```
-
-Follow the prompts:
-1. Number of files to upload
-2. File names, in correlation order (e.g. `sales.csv` → `sellers.xlsx`)
-3. Merge key confirmation for each file pair
-4. Column mapping (seller, category, price, quantity, total, date)
-
-## Sample output
-
+ 
+You'll be prompted to:
+ 
+1. Enter the number of files to upload (in the order they should be merged).
+2. Provide the path to each file (`.csv`, `.xlsx`, or `.xls`).
+3. Choose the merge key for each pair of files (or enter one manually if none match).
+4. Identify the relevant columns in your merged dataset: category, seller name, price, quantity, an optional totals column, and an optional date column.
+5. Choose the output format (CSV or Excel).
+The three reports are saved in the working directory.
+ 
+## Example dataset
+ 
+A ready-to-use fictional sales dataset is available for testing the full pipeline without uploading your own data:
+ 
+- `ventas.csv` — sales transactions (order, product, quantity, price, date)
+- `productos.csv` — product catalog (linked to `ventas.csv` via `ProductID`, and to `vendedores.csv` via `SellerID`)
+- `vendedores.csv` — seller directory (linked to `regiones.csv` via `Region`)
+- `regiones.csv` — regional manager lookup
+Upload them in that exact order to walk through the full merge chain.
+ 
+## Project structure
+ 
 ```
-                      sum  count    max
-Category    Month
-Computers   1      157000      4  45000
-Peripherals 1       11100      7   3500
-Audio       1        4400      2   2200
-...
-
-Category        Audio  Computers  Office  Peripherals     All
-Name
-Carla Nunez      4400     226000   24000         8500  262900
-Martin Alvarez   6600     292000   16000        12900  327500
-...
+multi-file-report-generator/
+├── reports-generator.py   # main pipeline: merge orchestration + report generation
+├── cleaner.py              # standalone file cleaning module
+└── README.md
 ```
+ 
+## Use cases
+ 
+This tool fits businesses that track sales across multiple disconnected sources — e-commerce sellers with separate product/seller/region spreadsheets, marketplaces consolidating data from different systems, or any team manually copy-pasting CSVs into a single report every month.
+ 
+## Known limitations
+ 
+- Merge order matters: the tool checks for shared columns between *consecutive* files only, not across the whole set.
+- Column name matching is case- and whitespace-sensitive (normalization is planned).
+- Corrupted or malformed source files are not yet handled gracefully.
 
-## Status
-
-Core pipeline is functional end-to-end: file cleaning → merge → column mapping → report generation. Tested with real multi-file sales datasets.
-
-**Pending:**
-- Refactor repeated S/N confirmation prompts into a single reusable function
-- Friendlier error handling when no shared columns are found or merge is cancelled (currently restarts the whole flow)
-- Type hints and docstrings across all functions
-- Input validation edge cases
-- Automated tests
-
-## Notes
-
-This is a portfolio project built to demonstrate practical Python data-automation skills for freelance work (small/medium business use cases: sales consolidation, seller performance tracking, monthly reporting).
+## License
+MIT
